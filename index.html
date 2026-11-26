@@ -1,0 +1,1602 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DispatchOps TMS — Email-Only Freight Dispatcher Simulator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            slate: {
+              850: '#151e2e',
+              925: '#0c121e',
+              950: '#080c14',
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    /* Custom scrollbar for dispatch terminal aesthetic */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+    /* Print styles for Straight Bill of Lading (BOL) */
+    @media print {
+      body * {
+        visibility: hidden !important;
+      }
+      #bol-printable-area, #bol-printable-area * {
+        visibility: visible !important;
+      }
+      #bol-printable-area {
+        position: fixed !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 16px !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+        box-shadow: none !important;
+        border: 2px solid #000000 !important;
+      }
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col selection:bg-sky-500 selection:text-white">
+
+  <!-- Toast / Notification Container (No alert() used) -->
+  <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm pointer-events-none"></div>
+
+  <!-- Top Navigation & Fleet Telemetry Bar -->
+  <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-30 shadow-lg">
+    <div class="max-w-[1600px] mx-auto px-3 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3">
+      <!-- Brand Identity -->
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-sky-500 to-blue-700 flex items-center justify-center shadow-md shadow-sky-500/20">
+          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-bold text-base sm:text-lg tracking-tight text-white">DispatchOps <span class="text-sky-400">TMS</span></h1>
+            <span class="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Email-Only Mode</span>
+          </div>
+          <p class="text-xs text-slate-400 hidden sm:block">Apex Freight Dispatching LLC • MC #1489204 • DOT #3910482</p>
+        </div>
+      </div>
+
+      <!-- Live Fleet Status Pills -->
+      <div class="hidden xl:flex items-center gap-3 bg-slate-950/80 px-3.5 py-1.5 rounded-xl border border-slate-800 text-xs">
+        <div class="flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span class="text-slate-400">Active Trucks:</span>
+          <span id="stat-active-trucks" class="font-mono font-semibold text-white">3 / 3</span>
+        </div>
+        <span class="text-slate-700">|</span>
+        <div class="flex items-center gap-1.5">
+          <span class="text-slate-400">HOS Alerts:</span>
+          <span id="stat-hos-alert" class="font-mono font-semibold text-amber-400">Unit #104 (09h 15m left)</span>
+        </div>
+        <span class="text-slate-700">|</span>
+        <div class="flex items-center gap-1.5">
+          <span class="text-slate-400">Booked Gross:</span>
+          <span id="stat-gross-rev" class="font-mono font-semibold text-emerald-400">$2,400.00</span>
+        </div>
+      </div>
+
+      <!-- Action Controls -->
+      <div class="flex items-center gap-2">
+        <button onclick="triggerRandomEmergency()" class="px-3 py-2 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer">
+          <svg class="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <span>Trigger Road Emergency</span>
+        </button>
+
+        <button onclick="openSettingsModal()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer">
+          <span id="ai-status-dot" class="w-2 h-2 rounded-full bg-amber-400"></span>
+          <span id="ai-status-label">AI: Demo Mode</span>
+          <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Primary Workspace Navigation Tabs -->
+    <nav class="bg-slate-925 border-t border-slate-800/80 px-3 sm:px-6 overflow-x-auto">
+      <div class="max-w-[1600px] mx-auto flex items-center gap-1 sm:gap-2 py-1.5">
+        <button onclick="switchTab('loadboard')" id="tab-btn-loadboard" class="tab-btn px-3.5 py-2 rounded-lg text-xs sm:text-sm font-medium flex items-center gap-2 transition whitespace-nowrap bg-sky-600 text-white shadow-sm cursor-pointer">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0"/></svg>
+          <span>1. Load Board & Fleet</span>
+        </button>
+
+        <button onclick="switchTab('inbox')" id="tab-btn-inbox" class="tab-btn px-3.5 py-2 rounded-lg text-xs sm:text-sm font-medium flex items-center gap-2 transition whitespace-nowrap text-slate-400 hover:text-white hover:bg-slate-800/70 cursor-pointer">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+          <span>2. Email Dispatch Inbox</span>
+          <span id="unread-badge" class="px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-sky-500 text-white">4</span>
+        </button>
+
+        <button onclick="switchTab('documents')" id="tab-btn-documents" class="tab-btn px-3.5 py-2 rounded-lg text-xs sm:text-sm font-medium flex items-center gap-2 transition whitespace-nowrap text-slate-400 hover:text-white hover:bg-slate-800/70 cursor-pointer">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          <span>3. BOL & Carrier Packet</span>
+        </button>
+
+        <button onclick="switchTab('incidents')" id="tab-btn-incidents" class="tab-btn px-3.5 py-2 rounded-lg text-xs sm:text-sm font-medium flex items-center gap-2 transition whitespace-nowrap text-slate-400 hover:text-white hover:bg-slate-800/70 cursor-pointer">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <span>4. Road Breakdowns & Incidents</span>
+          <span id="incident-badge" class="px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-rose-500 text-white">1</span>
+        </button>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="flex-1 max-w-[1600px] w-full mx-auto p-3 sm:p-6">
+
+    <!-- ===================================================================== -->
+    <!-- TAB 1: LOAD BOARD & FLEET DISPATCH                                    -->
+    <!-- ===================================================================== -->
+    <section id="tab-loadboard" class="space-y-6">
+      <!-- Active Fleet Roster Cards -->
+      <div>
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400">Active Fleet Roster & Hours of Service (HOS)</h2>
+          <span class="text-xs text-slate-500">Select a truck below when booking freight from the Load Board</span>
+        </div>
+        <div id="fleet-cards-grid" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <!-- Populated dynamically by JS -->
+        </div>
+      </div>
+
+      <!-- Load Board Filters & Table -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+        <div class="p-4 sm:p-5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 class="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+              <span>DAT / Truckstop Simulated Spot Load Board</span>
+              <span class="text-xs font-mono px-2 py-0.5 rounded bg-sky-500/15 text-sky-400 border border-sky-500/30">LIVE FEED</span>
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">All broker communications are strictly email-only. Click <strong class="text-slate-200">Book / Email Broker</strong> to negotiate RPM and request a Rate Con.</p>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <select id="filter-equipment" onchange="renderLoadBoard()" class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-sky-500">
+              <option value="ALL">All Equipment Types</option>
+              <option value="Dry Van 53'">Dry Van 53'</option>
+              <option value="Reefer 53'">Reefer 53'</option>
+              <option value="Flatbed 48'">Flatbed 48'</option>
+            </select>
+            <select id="selected-truck-for-booking" onchange="renderLoadBoard()" class="bg-slate-950 border border-sky-500/50 rounded-lg px-3 py-2 text-xs text-sky-300 font-medium focus:outline-none">
+              <option value="104">Assigning: Unit #104 (Mike R. — Los Angeles, CA)</option>
+              <option value="208">Assigning: Unit #208 (Carlos M. — Dallas, TX)</option>
+              <option value="312">Assigning: Unit #312 (Elena V. — Chicago, IL)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="bg-slate-950/70 text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                <th class="py-3 px-4">Load ID / Pickup</th>
+                <th class="py-3 px-4">Origin &rarr; Destination</th>
+                <th class="py-3 px-4">Miles (Loaded / DH)</th>
+                <th class="py-3 px-4">Equipment & Commodity</th>
+                <th class="py-3 px-4">Posted Rate & RPM</th>
+                <th class="py-3 px-4">Brokerage & Credit</th>
+                <th class="py-3 px-4 text-right">Email Action</th>
+              </tr>
+            </thead>
+            <tbody id="loadboard-tbody" class="divide-y divide-slate-800/70 text-xs sm:text-sm">
+              <!-- Populated dynamically by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- TAB 2: EMAIL-ONLY DISPATCH INBOX (3-PANE CLIENT)                      -->
+    <!-- ===================================================================== -->
+    <section id="tab-inbox" class="hidden">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl grid grid-cols-1 lg:grid-cols-12 min-h-[680px]">
+
+        <!-- Left Sidebar: Folders & Quick Compose -->
+        <div class="lg:col-span-2 bg-slate-925 border-b lg:border-b-0 lg:border-r border-slate-800 p-3 flex flex-col justify-between gap-4">
+          <div class="space-y-3">
+            <button onclick="openComposeModal()" class="w-full py-2.5 px-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-md shadow-sky-600/20 transition cursor-pointer">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+              <span>Compose New Email</span>
+            </button>
+
+            <div class="space-y-1">
+              <button onclick="setEmailFolder('all')" id="folder-all" class="folder-btn w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium bg-slate-800 text-white cursor-pointer">
+                <span>All Dispatch Inbox</span>
+                <span id="count-all" class="font-mono text-[11px] text-slate-400">0</span>
+              </button>
+              <button onclick="setEmailFolder('broker')" id="folder-broker" class="folder-btn w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 cursor-pointer">
+                <span>Brokers & Rate Cons</span>
+                <span id="count-broker" class="font-mono text-[11px] text-sky-400">0</span>
+              </button>
+              <button onclick="setEmailFolder('client')" id="folder-client" class="folder-btn w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 cursor-pointer">
+                <span>Shippers / Receivers</span>
+                <span id="count-client" class="font-mono text-[11px] text-emerald-400">0</span>
+              </button>
+              <button onclick="setEmailFolder('driver')" id="folder-driver" class="folder-btn w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 cursor-pointer">
+                <span>Fleet Drivers</span>
+                <span id="count-driver" class="font-mono text-[11px] text-amber-400">0</span>
+              </button>
+              <button onclick="setEmailFolder('emergency')" id="folder-emergency" class="folder-btn w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 cursor-pointer">
+                <span>Road Emergencies</span>
+                <span id="count-emergency" class="font-mono text-[11px] text-rose-400">0</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] text-slate-400 space-y-1.5">
+            <div class="font-semibold text-slate-300">Dispatcher Identity</div>
+            <div class="font-mono text-[10px] text-sky-400 break-all">dispatch@apexfreightops.com</div>
+            <p class="leading-relaxed">No phone calls allowed. Every rate negotiation, lumper approval, and repair order must have an email paper trail.</p>
+          </div>
+        </div>
+
+        <!-- Middle Column: Thread List -->
+        <div class="lg:col-span-4 border-b lg:border-b-0 lg:border-r border-slate-800 flex flex-col max-h-[680px]">
+          <div class="p-3 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between">
+            <span id="current-folder-title" class="text-xs font-bold uppercase tracking-wider text-slate-300">All Dispatch Inbox</span>
+            <span class="text-[11px] text-slate-500">Click thread to reply</span>
+          </div>
+          <div id="email-thread-list" class="divide-y divide-slate-800/70 overflow-y-auto flex-1">
+            <!-- Populated dynamically by JS -->
+          </div>
+        </div>
+
+        <!-- Right Column: Email Conversation & AI Reply Box -->
+        <div class="lg:col-span-6 flex flex-col bg-slate-950/40 max-h-[680px]">
+          <div id="email-reader-header" class="p-4 border-b border-slate-800 bg-slate-900/80">
+            <!-- Populated dynamically -->
+          </div>
+
+          <div id="email-messages-container" class="flex-1 p-4 space-y-4 overflow-y-auto">
+            <!-- Populated dynamically -->
+          </div>
+
+          <!-- Quick Dispatch Reply Templates + Composer -->
+          <div class="p-3 sm:p-4 border-t border-slate-800 bg-slate-900">
+            <div class="flex flex-wrap items-center gap-1.5 mb-2">
+              <span class="text-[11px] text-slate-400 mr-1">1-Click Templates:</span>
+              <button onclick="insertReplyTemplate('counter')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-sky-300 border border-slate-700 cursor-pointer">Counter Offer (+$250)</button>
+              <button onclick="insertReplyTemplate('ratecon')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-emerald-300 border border-slate-700 cursor-pointer">Send MC & Request Rate Con</button>
+              <button onclick="insertReplyTemplate('checkcall')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-amber-300 border border-slate-700 cursor-pointer">Check-Call / ETA Update</button>
+              <button onclick="insertReplyTemplate('lumper')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-purple-300 border border-slate-700 cursor-pointer">Request Lumper / Detention</button>
+            </div>
+
+            <div class="flex flex-col gap-2">
+              <textarea id="email-reply-input" rows="3" placeholder="Write your dispatch email response here (e.g., counter-offer rate, send driver info, approve roadside repair)..." class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500 resize-none"></textarea>
+              <div class="flex items-center justify-between gap-2">
+                <span id="ai-typing-indicator" class="text-xs text-sky-400 hidden flex items-center gap-1.5">
+                  <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+                  <span>Contact is typing email reply...</span>
+                </span>
+                <div class="ml-auto flex items-center gap-2">
+                  <button onclick="sendEmailReply()" id="send-reply-btn" class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs sm:text-sm flex items-center gap-2 shadow-md transition cursor-pointer">
+                    <span>Send Email</span>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- TAB 3: BILL OF LADING (BOL) & CARRIER PACKET GENERATOR                -->
+    <!-- ===================================================================== -->
+    <section id="tab-documents" class="hidden space-y-6">
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+
+        <!-- Left Form: BOL Builder & Carrier Compliance Packet -->
+        <div class="xl:col-span-5 space-y-6">
+          <!-- Straight BOL Editor -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+            <div class="flex items-center justify-between">
+              <h2 class="text-base font-bold text-white">Straight Bill of Lading (BOL) Builder</h2>
+              <button onclick="prefillBolFromActiveLoad()" class="text-xs px-2.5 py-1 rounded-lg bg-sky-500/15 text-sky-400 border border-sky-500/30 hover:bg-sky-500/25 cursor-pointer">Auto-Fill from Load #LD-8841</button>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label class="block text-slate-400 mb-1">BOL / PRO Number</label>
+                <input id="bol-number" oninput="updateBolPreview()" type="text" value="BOL-2026-99412" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono" />
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1">Trailer Seal #</label>
+                <input id="bol-seal" oninput="updateBolPreview()" type="text" value="SL-7748290" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono" />
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-slate-400 mb-1">Shipper (Origin Facility & Address)</label>
+                <input id="bol-shipper" oninput="updateBolPreview()" type="text" value="Pacific Beverage Logistics — 14800 Proctor Ave, City of Industry, CA 91746" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white" />
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-slate-400 mb-1">Consignee (Receiver Facility & Address)</label>
+                <input id="bol-consignee" oninput="updateBolPreview()" type="text" value="Northern Valley Grocery DC — 550 Antelope Blvd, Red Bluff, CA 96080" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white" />
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1">Assigned Truck & Trailer</label>
+                <input id="bol-unit" oninput="updateBolPreview()" type="text" value="Unit #104 / Trailer #V-5309" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white" />
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1">Freight Charge Terms</label>
+                <select id="bol-terms" onchange="updateBolPreview()" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white">
+                  <option value="PREPAID (3rd Party Broker)">PREPAID (3rd Party Broker)</option>
+                  <option value="COLLECT">COLLECT</option>
+                  <option value="3RD PARTY BILLING">3RD PARTY BILLING</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1">Commodity Description</label>
+                <input id="bol-commodity" oninput="updateBolPreview()" type="text" value="24 Pallets Bottled Spring Water (Non-Hazmat)" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white" />
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1">Gross Weight (lbs)</label>
+                <input id="bol-weight" oninput="updateBolPreview()" type="text" value="42,500 lbs" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono" />
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-slate-400 mb-1">Special Instructions / Temp / Lumper Notes</label>
+                <input id="bol-notes" oninput="updateBolPreview()" type="text" value="Driver assist not required. Keep seal intact until receiver check-in at Dock 14." class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Carrier-Broker Onboarding Packet Checklist -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-bold text-white">Carrier-Broker Onboarding Packet Checklist</h3>
+              <span class="text-[11px] font-mono text-emerald-400">READY TO EMAIL</span>
+            </div>
+            <p class="text-xs text-slate-400">Required documents every dispatcher emails when setting up with a new freight broker:</p>
+            <div class="space-y-2 text-xs">
+              <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                <span class="flex items-center gap-2"><input type="checkbox" checked class="accent-sky-500"> <span>FMCSA MC Authority Letter (MC #1489204)</span></span>
+                <span class="text-emerald-400 font-mono text-[11px]">VERIFIED</span>
+              </label>
+              <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                <span class="flex items-center gap-2"><input type="checkbox" checked class="accent-sky-500"> <span>Signed IRS Form W-9 (2026 Tax ID)</span></span>
+                <span class="text-emerald-400 font-mono text-[11px]">VERIFIED</span>
+              </label>
+              <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                <span class="flex items-center gap-2"><input type="checkbox" checked class="accent-sky-500"> <span>Certificate of Insurance ($1M Auto / $100k Cargo)</span></span>
+                <span class="text-emerald-400 font-mono text-[11px]">ACTIVE</span>
+              </label>
+              <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                <span class="flex items-center gap-2"><input type="checkbox" checked class="accent-sky-500"> <span>Notice of Assignment (NOA) — Apex Factoring</span></span>
+                <span class="text-emerald-400 font-mono text-[11px]">ATTACHED</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Preview: Printable Straight Bill of Lading -->
+        <div class="xl:col-span-7 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Live Printable Straight Bill of Lading Preview</span>
+            <div class="flex items-center gap-2">
+              <button onclick="emailBolToDriver()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 text-xs font-semibold cursor-pointer">
+                Email BOL to Driver
+              </button>
+              <button onclick="window.print()" class="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md cursor-pointer">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+                <span>Print / Save as PDF</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- White Paper Document Preview -->
+          <div id="bol-printable-area" class="bg-white text-slate-900 rounded-xl p-6 sm:p-8 shadow-2xl border-2 border-slate-300 font-sans text-xs">
+            <div class="border-b-2 border-black pb-4 mb-4 flex flex-wrap justify-between items-start gap-4">
+              <div>
+                <div class="text-xl font-black tracking-tight uppercase">STRAIGHT BILL OF LADING — SHORT FORM</div>
+                <div class="text-[11px] text-slate-600 font-medium">ORIGINAL — NOT NEGOTIABLE • Uniform Straight Bill of Lading Terms</div>
+              </div>
+              <div class="text-right font-mono">
+                <div class="text-sm font-bold" id="prev-bol-number">BOL-2026-99412</div>
+                <div class="text-[11px]">Date: <span id="prev-bol-date">Nov 26, 2026</span></div>
+                <div class="text-[11px]">Seal #: <span id="prev-bol-seal" class="font-bold">SL-7748290</span></div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+              <div class="border border-black p-3">
+                <div class="text-[10px] font-bold uppercase bg-slate-200 px-1.5 py-0.5 mb-1.5">SHIPPER (FROM)</div>
+                <div id="prev-bol-shipper" class="font-semibold text-xs leading-snug">Pacific Beverage Logistics — 14800 Proctor Ave, City of Industry, CA 91746</div>
+              </div>
+              <div class="border border-black p-3">
+                <div class="text-[10px] font-bold uppercase bg-slate-200 px-1.5 py-0.5 mb-1.5">CONSIGNEE (TO)</div>
+                <div id="prev-bol-consignee" class="font-semibold text-xs leading-snug">Northern Valley Grocery DC — 550 Antelope Blvd, Red Bluff, CA 96080</div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 border border-black p-3 bg-slate-50">
+              <div>
+                <span class="text-[10px] uppercase text-slate-500 block">Carrier Name & MC#</span>
+                <span class="font-bold">Apex Freight Dispatching LLC (MC #1489204)</span>
+              </div>
+              <div>
+                <span class="text-[10px] uppercase text-slate-500 block">Equipment / Unit</span>
+                <span id="prev-bol-unit" class="font-bold">Unit #104 / Trailer #V-5309</span>
+              </div>
+              <div>
+                <span class="text-[10px] uppercase text-slate-500 block">Freight Terms</span>
+                <span id="prev-bol-terms" class="font-bold">PREPAID (3rd Party Broker)</span>
+              </div>
+            </div>
+
+            <table class="w-full border-collapse border border-black mb-4 text-left">
+              <thead>
+                <tr class="bg-slate-200 text-[10px] uppercase">
+                  <th class="border border-black p-2">Handling Units</th>
+                  <th class="border border-black p-2">HM</th>
+                  <th class="border border-black p-2">Description of Articles & Special Marks</th>
+                  <th class="border border-black p-2">Gross Weight</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="border border-black p-2 font-mono">24 PLTS</td>
+                  <td class="border border-black p-2 text-center">NO</td>
+                  <td id="prev-bol-commodity" class="border border-black p-2 font-semibold">24 Pallets Bottled Spring Water (Non-Hazmat)</td>
+                  <td id="prev-bol-weight" class="border border-black p-2 font-mono font-bold">42,500 lbs</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="border border-black p-3 mb-6 bg-amber-50/60">
+              <div class="text-[10px] font-bold uppercase text-slate-700 mb-1">Special Dispatch & Handling Instructions</div>
+              <div id="prev-bol-notes" class="text-xs">Driver assist not required. Keep seal intact until receiver check-in at Dock 14.</div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-4 pt-4 border-t border-black text-[11px]">
+              <div>
+                <div class="font-bold mb-6">Shipper Signature / Date</div>
+                <div class="border-b border-black"></div>
+              </div>
+              <div>
+                <div class="font-bold mb-6">Driver Signature (Piece Count)</div>
+                <div class="border-b border-black"></div>
+              </div>
+              <div>
+                <div class="font-bold mb-6">Consignee POD Signature</div>
+                <div class="border-b border-black"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- TAB 4: IN-TRANSIT INCIDENTS & ROADSIDE BREAKDOWN CENTER               -->
+    <!-- ===================================================================== -->
+    <section id="tab-incidents" class="hidden space-y-6">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-white">In-Transit Incident, Breakdown & Safety Command</h2>
+          <p class="text-xs text-slate-400">Simulate real over-the-road emergencies, dispatch mobile repair vendors via email, and keep brokers/receivers updated to avoid service failures.</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="spawnSpecificIncident('tire')" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-amber-300 cursor-pointer">+ Blown Steer Tire</button>
+          <button onclick="spawnSpecificIncident('reefer')" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-sky-300 cursor-pointer">+ Reefer Temp Spike</button>
+          <button onclick="spawnSpecificIncident('accident')" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-rose-300 cursor-pointer">+ Minor Fender Bender / DOT</button>
+        </div>
+      </div>
+
+      <div id="incidents-list" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Populated dynamically by JS -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL: OPENROUTER FREE API SETTINGS                                   -->
+  <!-- ===================================================================== -->
+  <div id="settings-modal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="text-base font-bold text-white">OpenRouter AI Brain Configuration (100% Free)</h3>
+        <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-white cursor-pointer">&times;</button>
+      </div>
+
+      <p class="text-xs text-slate-300 leading-relaxed">
+        Paste a free API key from <strong class="text-sky-400">openrouter.ai</strong> to have real LLMs roleplay as freight brokers, shippers, truck drivers, and roadside mechanics via email. Leave blank to use the built-in <strong>Smart Offline Demo Responder</strong> at $0 cost.
+      </p>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-400 mb-1">OpenRouter API Key (Stored locally in your browser)</label>
+          <input id="openrouter-key-input" type="password" placeholder="sk-or-v1-..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-white font-mono focus:outline-none focus:border-sky-500" />
+        </div>
+
+        <div>
+          <label class="block text-slate-400 mb-1">OpenRouter Free Model Slug</label>
+          <select id="openrouter-model-select" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-white font-mono focus:outline-none focus:border-sky-500">
+            <option value="openrouter/free">openrouter/free (Auto-routes to active $0/M free models)</option>
+            <option value="meta-llama/llama-3.3-70b-instruct:free">meta-llama/llama-3.3-70b-instruct:free</option>
+            <option value="google/gemma-3-27b-it:free">google/gemma-3-27b-it:free</option>
+            <option value="mistralai/mistral-small-3.1-24b-instruct:free">mistralai/mistral-small-3.1-24b-instruct:free</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+        <button onclick="clearApiKey()" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs cursor-pointer">Use Offline Demo Mode</button>
+        <button onclick="saveApiSettings()" class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs cursor-pointer">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL: COMPOSE NEW EMAIL                                              -->
+  <!-- ===================================================================== -->
+  <div id="compose-modal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="text-base font-bold text-white">Compose New Dispatch Email</h3>
+        <button onclick="closeComposeModal()" class="text-slate-400 hover:text-white cursor-pointer">&times;</button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-400 mb-1">Recipient Category</label>
+          <select id="compose-category" onchange="updateComposePreset()" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white">
+            <option value="broker">Freight Broker (Rate Negotiation / Check-Call)</option>
+            <option value="client">3rd-Party Shipper / Receiver (Dock Appt / Lumper)</option>
+            <option value="driver">Truck Driver (Load Dispatch / Route Update)</option>
+            <option value="emergency">Mobile Roadside Repair Vendor</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">To (Email Address & Contact Name)</label>
+          <input id="compose-to" type="text" value="sarah.jenkins@tql-freight-sim.com" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Subject Line</label>
+          <input id="compose-subject" type="text" value="Load Inquiry: Dallas, TX to Atlanta, GA — MC #1489204" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Message</label>
+          <textarea id="compose-body" rows="4" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white resize-none">Hi Sarah,
+
+We have a 53' Reefer empty in Dallas, TX ready for pickup today. Can you share the commodity weight, dock hours, and your best rate on the Atlanta run?
+
+Best regards,
+Dispatch — Apex Freight Dispatching LLC (MC #1489204)</textarea>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+        <button onclick="closeComposeModal()" class="px-3 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs cursor-pointer">Cancel</button>
+        <button onclick="submitNewEmailThread()" class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs cursor-pointer">Send Email</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- JAVASCRIPT APPLICATION LOGIC                                          -->
+  <!-- ===================================================================== -->
+  <script>
+    // -----------------------------------------------------------------------
+    // 1. SIMULATOR STATE & INITIAL DATA
+    // -----------------------------------------------------------------------
+    const state = {
+      activeTab: 'loadboard',
+      activeFolder: 'all',
+      selectedThreadId: 'th-1',
+      openRouterKey: localStorage.getItem('dispatchops_or_key') || '',
+      openRouterModel: localStorage.getItem('dispatchops_or_model') || 'openrouter/free',
+      bookedGross: 2400,
+
+      fleet: [
+        {
+          unit: '104',
+          driver: 'Mike Reynolds',
+          email: 'mike.reynolds@apexfleet-driver.com',
+          equipment: "Dry Van 53'",
+          location: 'Los Angeles, CA',
+          status: 'In Transit (Load #LD-8841)',
+          statusColor: 'emerald',
+          hosDriveLeft: '09h 15m',
+          mpg: '6.8 MPG'
+        },
+        {
+          unit: '208',
+          driver: 'Carlos Mendoza',
+          email: 'carlos.mendoza@apexfleet-driver.com',
+          equipment: "Reefer 53'",
+          location: 'Dallas, TX',
+          status: 'Empty / Ready for Dispatch',
+          statusColor: 'sky',
+          hosDriveLeft: '11h 00m',
+          mpg: '6.4 MPG'
+        },
+        {
+          unit: '312',
+          driver: 'Elena Vance',
+          email: 'elena.vance@apexfleet-driver.com',
+          equipment: "Flatbed 48'",
+          location: 'Chicago, IL',
+          status: 'At Dock (Unloading)',
+          statusColor: 'amber',
+          hosDriveLeft: '07h 40m',
+          mpg: '6.1 MPG'
+        }
+      ],
+
+      loads: [
+        {
+          id: 'LD-8841',
+          pickupDate: 'Today, 14:00 PST',
+          origin: 'City of Industry, CA',
+          destination: 'Red Bluff, CA',
+          loadedMiles: 562,
+          deadheadMiles: 18,
+          equipment: "Dry Van 53'",
+          commodity: 'Bottled Spring Water',
+          weight: '42,500 lbs',
+          rate: 2400,
+          brokerName: 'Marcus Vance — Coyote Logistics',
+          brokerEmail: 'mvance@coyote-sim.com',
+          creditScore: '98 / Days to Pay: 21',
+          booked: true
+        },
+        {
+          id: 'LD-9012',
+          pickupDate: 'Tomorrow, 07:00 CST',
+          origin: 'Dallas, TX',
+          destination: 'Atlanta, GA',
+          loadedMiles: 781,
+          deadheadMiles: 12,
+          equipment: "Reefer 53'",
+          commodity: 'Fresh Produce (34°F Continuous)',
+          weight: '39,800 lbs',
+          rate: 2650,
+          brokerName: 'Sarah Jenkins — TQL Freight',
+          brokerEmail: 'sjenkins@tql-sim.com',
+          creditScore: '96 / Days to Pay: 25',
+          booked: false
+        },
+        {
+          id: 'LD-9045',
+          pickupDate: 'Tomorrow, 09:30 CST',
+          origin: 'Chicago, IL',
+          destination: 'Columbus, OH',
+          loadedMiles: 356,
+          deadheadMiles: 24,
+          equipment: "Dry Van 53'",
+          commodity: 'Auto Parts (Palletized)',
+          weight: '34,000 lbs',
+          rate: 1280,
+          brokerName: 'David Cho — C.H. Robinson',
+          brokerEmail: 'dcho@chrobinson-sim.com',
+          creditScore: '99 / Days to Pay: 18',
+          booked: false
+        },
+        {
+          id: 'LD-9108',
+          pickupDate: 'Tomorrow, 11:00 CST',
+          origin: 'Houston, TX',
+          destination: 'Phoenix, AZ',
+          loadedMiles: 1175,
+          deadheadMiles: 240,
+          equipment: "Flatbed 48'",
+          commodity: 'Structural Steel Beams (Tarps Req)',
+          weight: '45,200 lbs',
+          rate: 3450,
+          brokerName: 'Rachel Ortiz — Landstar',
+          brokerEmail: 'rortiz@landstar-sim.com',
+          creditScore: '97 / Days to Pay: 20',
+          booked: false
+        }
+      ],
+
+      threads: [
+        {
+          id: 'th-1',
+          category: 'broker',
+          unread: true,
+          contactName: 'Marcus Vance (Coyote Logistics)',
+          contactEmail: 'mvance@coyote-sim.com',
+          subject: 'Rate Con #8841 & Check-Call Request — City of Industry to Red Bluff, CA',
+          timestamp: '10 mins ago',
+          personaPrompt: 'You are Marcus Vance, a fast-paced freight broker at Coyote Logistics. Keep replies realistic, concise, using trucking terminology (Rate Con, MC#, check-call, detention, RPM).',
+          messages: [
+            {
+              sender: 'them',
+              name: 'Marcus Vance (Coyote Logistics)',
+              time: '16:45',
+              body: 'Hey Dispatch,\n\nThanks for booking Load #LD-8841 at $2,400 all-in. Rate Confirmation is attached. Please reply confirming your driver (Unit #104 Mike Reynolds) has checked in at Pacific Beverage Logistics in City of Industry and send the trailer seal number once loaded.\n\nThanks,\nMarcus Vance | Senior Carrier Rep'
+            }
+          ]
+        },
+        {
+          id: 'th-2',
+          category: 'client',
+          unread: true,
+          contactName: 'Dock Scheduling — Northern Valley Grocery DC',
+          contactEmail: 'receiving@nvgrocery-sim.com',
+          subject: 'Delivery Appointment & Lumper Fee Notice — BOL-2026-99412',
+          timestamp: '28 mins ago',
+          personaPrompt: 'You are a warehouse receiving coordinator at Northern Valley Grocery DC. You handle dock appointments, Capstone lumper receipts, and detention sign-offs via email.',
+          messages: [
+            {
+              sender: 'them',
+              name: 'Receiving Desk (Northern Valley DC)',
+              time: '16:22',
+              body: 'Good afternoon,\n\nYour delivery appointment for BOL-2026-99412 (24 pallets bottled water) is confirmed for tomorrow at 06:30 AM at Dock Door 14. Please note: unloading requires a $145.00 Capstone Lumper fee. Have your broker issue an EFS/Comchek code prior to arrival to avoid detention.\n\nRegards,\nReceiving Operations'
+            }
+          ]
+        },
+        {
+          id: 'th-3',
+          category: 'driver',
+          unread: true,
+          contactName: 'Mike Reynolds (Unit #104)',
+          contactEmail: 'mike.reynolds@apexfleet-driver.com',
+          subject: 'Loaded at City of Industry — Seal #SL-7748290 + Scale Ticket',
+          timestamp: '42 mins ago',
+          personaPrompt: 'You are Mike Reynolds, an experienced CDL-A over-the-road truck driver driving Unit #104. Reply casually and professionally to your dispatcher about ELD hours, scale weights, and highway traffic.',
+          messages: [
+            {
+              sender: 'them',
+              name: 'Mike Reynolds (Unit #104)',
+              time: '16:10',
+              body: 'Boss, just pulled out of the shipper dock. 24 pallets loaded, gross weight 78,400 lbs on the CAT scale (legal on all axles). Seal #SL-7748290 is intact. Heading north on I-5 now. I have 9h 15m left on my drive clock today.'
+            }
+          ]
+        },
+        {
+          id: 'th-4',
+          category: 'emergency',
+          unread: true,
+          contactName: 'Roadside Alert — Unit #104 (I-5 Milepost 218)',
+          contactEmail: 'dispatch-alerts@apexfreightops.com',
+          subject: 'URGENT: Low Steer Tire Pressure Alert / TPMS Warning on Unit #104',
+          timestamp: 'Just now',
+          personaPrompt: 'You are a 24/7 commercial mobile truck tire repair dispatch coordinator at Love\'s Truck Care Roadside Assistance.',
+          messages: [
+            {
+              sender: 'them',
+              name: 'Fleet Telematics & Driver Mike R.',
+              time: '17:30',
+              body: 'ALERT: Unit #104 pulled onto the shoulder on I-5 Northbound near Kettleman City, CA (Exit 309). Right-front steer tire has a sidewall bubble/air leak. Driver cannot safely drive to a shop. Needs mobile roadside tire service immediately and broker ETA update.'
+            }
+          ]
+        }
+      ],
+
+      incidents: [
+        {
+          id: 'INC-401',
+          type: 'Mechanical Breakdown — Steer Tire Blowout',
+          severity: 'HIGH',
+          unit: 'Unit #104 (Mike Reynolds)',
+          location: 'I-5 Northbound, Exit 309 (Kettleman City, CA)',
+          loadId: 'LD-8841',
+          estCost: '$685.00 (Mobile Service + Michelin Steer Tire)',
+          status: 'Action Required',
+          steps: [
+            { text: 'Verify driver placed reflective triangles & is safely off shoulder', done: true },
+            { text: 'Email Love\'s Mobile Roadside Service with tire size (295/75R22.5) & PO#', done: false },
+            { text: 'Email Broker (Marcus Vance) with revised ETA (+2.5 hrs) to protect rate', done: false }
+          ]
+        }
+      ]
+    };
+
+    // -----------------------------------------------------------------------
+    // 2. INITIALIZATION & UI HELPERS
+    // -----------------------------------------------------------------------
+    window.onload = function () {
+      updateAiStatusBadge();
+      renderFleetCards();
+      renderLoadBoard();
+      renderEmailFolders();
+      renderEmailThreadList();
+      renderEmailReader();
+      renderIncidents();
+      updateBolPreview();
+    };
+
+    function showToast(title, message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const colors = {
+        info: 'border-sky-500/50 bg-slate-900 text-sky-300',
+        success: 'border-emerald-500/50 bg-slate-900 text-emerald-300',
+        warning: 'border-amber-500/50 bg-slate-900 text-amber-300',
+        danger: 'border-rose-500/50 bg-slate-900 text-rose-300'
+      };
+      const toast = document.createElement('div');
+      toast.className = `pointer-events-auto border ${colors[type] || colors.info} rounded-xl p-3.5 shadow-2xl transition-all duration-300`;
+      toast.innerHTML = `
+        <div class="font-bold text-xs">${title}</div>
+        <div class="text-[11px] text-slate-300 mt-0.5">${message}</div>
+      `;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 4200);
+    }
+
+    function switchTab(tabName) {
+      state.activeTab = tabName;
+      ['loadboard', 'inbox', 'documents', 'incidents'].forEach(t => {
+        const el = document.getElementById(`tab-${t}`);
+        const btn = document.getElementById(`tab-btn-${t}`);
+        if (t === tabName) {
+          el.classList.remove('hidden');
+          btn.className = 'tab-btn px-3.5 py-2 rounded-lg text-xs sm:text-sm font-medium flex items-center gap-2 transition whitespace-nowrap bg-sky-600 text-white shadow-sm cursor-pointer';
+        } else {
+          el.classList.add('hidden');
+          btn.className = 'tab-btn px-3.5 py-2 rounded-lg text-xs sm:text-sm font-medium flex items-center gap-2 transition whitespace-nowrap text-slate-400 hover:text-white hover:bg-slate-800/70 cursor-pointer';
+        }
+      });
+    }
+
+    // -----------------------------------------------------------------------
+    // 3. TAB 1: FLEET ROSTER & LOAD BOARD
+    // -----------------------------------------------------------------------
+    function renderFleetCards() {
+      const grid = document.getElementById('fleet-cards-grid');
+      grid.innerHTML = state.fleet.map(truck => {
+        const badgeMap = {
+          emerald: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+          sky: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+          amber: 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+        };
+        return `
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between gap-3 hover:border-slate-700 transition">
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="font-mono font-bold text-sm text-white">Unit #${truck.unit}</span>
+                  <span class="text-xs text-slate-400">• ${truck.driver}</span>
+                </div>
+                <div class="text-xs text-slate-400 mt-1">${truck.equipment} • <span class="text-slate-200">${truck.location}</span></div>
+              </div>
+              <span class="text-[11px] font-medium px-2.5 py-0.5 rounded-full border ${badgeMap[truck.statusColor]}">${truck.status}</span>
+            </div>
+
+            <div class="flex items-center justify-between pt-2 border-t border-slate-800/80 text-[11px] font-mono text-slate-400">
+              <span>HOS Drive: <strong class="text-slate-200">${truck.hosDriveLeft}</strong></span>
+              <span>Fuel Avg: <strong class="text-slate-200">${truck.mpg}</strong></span>
+              <button onclick="emailDriverDirect('${truck.unit}')" class="text-sky-400 hover:underline font-sans font-semibold cursor-pointer">Email Driver &rarr;</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderLoadBoard() {
+      const filterEq = document.getElementById('filter-equipment').value;
+      const tbody = document.getElementById('loadboard-tbody');
+      const filtered = state.loads.filter(l => filterEq === 'ALL' || l.equipment === filterEq);
+
+      tbody.innerHTML = filtered.map(load => {
+        const totalMiles = load.loadedMiles + load.deadheadMiles;
+        const rpm = (load.rate / totalMiles).toFixed(2);
+        const rpmColor = rpm >= 2.75 ? 'text-emerald-400' : rpm >= 2.30 ? 'text-sky-400' : 'text-amber-400';
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3.5 px-4 align-top">
+              <div class="font-mono font-bold text-white">${load.id}</div>
+              <div class="text-[11px] text-slate-400 mt-0.5">${load.pickupDate}</div>
+            </td>
+            <td class="py-3.5 px-4 align-top">
+              <div class="font-semibold text-slate-100">${load.origin}</div>
+              <div class="text-xs text-sky-400 mt-0.5">&rarr; ${load.destination}</div>
+            </td>
+            <td class="py-3.5 px-4 align-top font-mono text-xs">
+              <div class="text-white font-semibold">${load.loadedMiles} mi</div>
+              <div class="text-slate-500">+${load.deadheadMiles} mi DH</div>
+            </td>
+            <td class="py-3.5 px-4 align-top">
+              <span class="inline-block px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-[11px] font-medium">${load.equipment}</span>
+              <div class="text-xs text-slate-300 mt-1">${load.commodity}</div>
+              <div class="text-[11px] text-slate-500 font-mono">${load.weight}</div>
+            </td>
+            <td class="py-3.5 px-4 align-top font-mono">
+              <div class="text-sm font-bold text-emerald-400">$${load.rate.toLocaleString()}</div>
+              <div class="text-xs ${rpmColor} font-semibold">$${rpm}/mi all-in</div>
+            </td>
+            <td class="py-3.5 px-4 align-top">
+              <div class="font-medium text-slate-200 text-xs">${load.brokerName}</div>
+              <div class="text-[11px] text-slate-500 font-mono">${load.brokerEmail}</div>
+              <div class="text-[10px] text-emerald-400/90 mt-0.5">Credit: ${load.creditScore}</div>
+            </td>
+            <td class="py-3.5 px-4 align-top text-right">
+              ${load.booked
+                ? `<span class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-semibold">Booked & Dispatched</span>`
+                : `<button onclick="bookAndEmailBroker('${load.id}')" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow transition cursor-pointer">Book / Email Broker</button>`
+              }
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function bookAndEmailBroker(loadId) {
+      const load = state.loads.find(l => l.id === loadId);
+      const selectedUnit = document.getElementById('selected-truck-for-booking').value;
+      const truck = state.fleet.find(t => t.unit === selectedUnit);
+      if (!load || !truck) return;
+
+      const targetOffer = load.rate + 200;
+      const newThreadId = 'th-' + Date.now();
+
+      state.threads.unshift({
+        id: newThreadId,
+        category: 'broker',
+        unread: false,
+        contactName: load.brokerName,
+        contactEmail: load.brokerEmail,
+        subject: `Load #${load.id}: ${load.origin} to ${load.destination} (${load.equipment}) — MC #1489204`,
+        timestamp: 'Just now',
+        personaPrompt: `You are ${load.brokerName}, a freight broker negotiating load #${load.id} from ${load.origin} to ${load.destination} (${load.loadedMiles} miles, ${load.equipment}). Posted rate is $${load.rate}. Negotiate realistically via email.`,
+        messages: [
+          {
+            sender: 'me',
+            name: 'You (Apex Dispatch)',
+            time: getCurrentTimeStr(),
+            body: `Hi ${load.brokerName.split(' ')[0]},\n\nWe are interested in Load #${load.id} (${load.origin} to ${load.destination}). We have Unit #${truck.unit} (${truck.driver}) empty in ${truck.location} with ${truck.equipment} and full HOS hours.\n\nGiven fuel and deadhead, can we get this done at $${targetOffer.toLocaleString()} all-in? Ready to sign Rate Con immediately.\n\nBest,\nDispatch | Apex Freight Dispatching LLC (MC #1489204)`
+          }
+        ]
+      });
+
+      state.selectedThreadId = newThreadId;
+      switchTab('inbox');
+      setEmailFolder('all');
+      showToast('Email Sent to Broker', `Opened rate negotiation thread with ${load.brokerName}`, 'success');
+
+      // Trigger automatic broker reply
+      generateContactReply(newThreadId, `We offered $${targetOffer} for ${load.origin} to ${load.destination}`);
+    }
+
+    function emailDriverDirect(unitNum) {
+      const truck = state.fleet.find(t => t.unit === unitNum);
+      if (!truck) return;
+      const existing = state.threads.find(th => th.contactEmail === truck.email);
+      if (existing) {
+        state.selectedThreadId = existing.id;
+      } else {
+        const newId = 'th-' + Date.now();
+        state.threads.unshift({
+          id: newId,
+          category: 'driver',
+          unread: false,
+          contactName: `${truck.driver} (Unit #${truck.unit})`,
+          contactEmail: truck.email,
+          subject: `Dispatch Check-In & Route Plan — Unit #${truck.unit}`,
+          timestamp: 'Just now',
+          personaPrompt: `You are ${truck.driver}, CDL-A truck driver operating Unit #${truck.unit} (${truck.equipment}) currently in ${truck.location}. Reply concisely to your dispatcher.`,
+          messages: [
+            {
+              sender: 'them',
+              name: `${truck.driver} (Unit #${truck.unit})`,
+              time: getCurrentTimeStr(),
+              body: `Hey Dispatch, standing by in ${truck.location}. I have ${truck.hosDriveLeft} available on my drive clock. Let me know what load we're grabbing next.`
+            }
+          ]
+        });
+        state.selectedThreadId = newId;
+      }
+      switchTab('inbox');
+      setEmailFolder('driver');
+    }
+
+    // -----------------------------------------------------------------------
+    // 4. TAB 2: EMAIL-ONLY DISPATCH INBOX & AI RESPONDER
+    // -----------------------------------------------------------------------
+    function setEmailFolder(folder) {
+      state.activeFolder = folder;
+      const titles = {
+        all: 'All Dispatch Inbox',
+        broker: 'Brokers & Rate Cons',
+        client: 'Shippers / Receivers',
+        driver: 'Fleet Drivers',
+        emergency: 'Road Emergencies'
+      };
+      document.getElementById('current-folder-title').textContent = titles[folder] || 'Inbox';
+
+      document.querySelectorAll('.folder-btn').forEach(btn => {
+        btn.className = 'folder-btn w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 cursor-pointer';
+      });
+      const activeBtn = document.getElementById(`folder-${folder}`);
+      if (activeBtn) {
+        activeBtn.className = 'folder-btn w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium bg-slate-800 text-white cursor-pointer';
+      }
+
+      renderEmailThreadList();
+    }
+
+    function renderEmailFolders() {
+      document.getElementById('count-all').textContent = state.threads.length;
+      document.getElementById('count-broker').textContent = state.threads.filter(t => t.category === 'broker').length;
+      document.getElementById('count-client').textContent = state.threads.filter(t => t.category === 'client').length;
+      document.getElementById('count-driver').textContent = state.threads.filter(t => t.category === 'driver').length;
+      document.getElementById('count-emergency').textContent = state.threads.filter(t => t.category === 'emergency').length;
+
+      const unreadCount = state.threads.filter(t => t.unread).length;
+      const badge = document.getElementById('unread-badge');
+      badge.textContent = unreadCount;
+      badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
+    }
+
+    function renderEmailThreadList() {
+      const list = document.getElementById('email-thread-list');
+      const filtered = state.activeFolder === 'all'
+        ? state.threads
+        : state.threads.filter(t => t.category === state.activeFolder);
+
+      const tagStyles = {
+        broker: 'bg-sky-500/15 text-sky-400',
+        client: 'bg-emerald-500/15 text-emerald-400',
+        driver: 'bg-amber-500/15 text-amber-400',
+        emergency: 'bg-rose-500/15 text-rose-400'
+      };
+
+      list.innerHTML = filtered.map(th => {
+        const isSelected = th.id === state.selectedThreadId;
+        const lastMsg = th.messages[th.messages.length - 1];
+        return `
+          <div onclick="selectEmailThread('${th.id}')" class="p-3.5 cursor-pointer transition ${isSelected ? 'bg-sky-950/40 border-l-2 border-sky-500' : 'hover:bg-slate-800/40'}">
+            <div class="flex items-center justify-between gap-2 mb-1">
+              <span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${tagStyles[th.category]}">${th.category}</span>
+              <span class="text-[11px] text-slate-500 font-mono">${th.timestamp}</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              ${th.unread ? '<span class="w-2 h-2 rounded-full bg-sky-400 shrink-0"></span>' : ''}
+              <div class="text-xs font-bold text-white truncate">${th.contactName}</div>
+            </div>
+            <div class="text-xs text-slate-300 font-medium truncate mt-0.5">${th.subject}</div>
+            <div class="text-[11px] text-slate-500 truncate mt-1">${lastMsg ? lastMsg.body.replace(/\n/g, ' ') : ''}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function selectEmailThread(threadId) {
+      state.selectedThreadId = threadId;
+      const thread = state.threads.find(t => t.id === threadId);
+      if (thread) thread.unread = false;
+      renderEmailFolders();
+      renderEmailThreadList();
+      renderEmailReader();
+    }
+
+    function renderEmailReader() {
+      const thread = state.threads.find(t => t.id === state.selectedThreadId) || state.threads[0];
+      if (!thread) return;
+
+      const header = document.getElementById('email-reader-header');
+      header.innerHTML = `
+        <div class="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h3 class="text-sm sm:text-base font-bold text-white">${thread.subject}</h3>
+            <div class="text-xs text-slate-400 mt-0.5">
+              From: <span class="text-slate-200 font-medium">${thread.contactName}</span>
+              <span class="font-mono text-[11px] text-sky-400">&lt;${thread.contactEmail}&gt;</span>
+            </div>
+          </div>
+          <span class="text-[11px] font-mono px-2 py-1 rounded bg-slate-800 text-slate-300 border border-slate-700">Thread ID: ${thread.id}</span>
+        </div>
+      `;
+
+      const container = document.getElementById('email-messages-container');
+      container.innerHTML = thread.messages.map(msg => {
+        const isMe = msg.sender === 'me';
+        return `
+          <div class="flex flex-col ${isMe ? 'items-end' : 'items-start'}">
+            <div class="max-w-[90%] rounded-2xl p-3.5 text-xs sm:text-sm leading-relaxed whitespace-pre-line shadow ${
+              isMe
+                ? 'bg-sky-600/20 border border-sky-500/40 text-slate-100'
+                : 'bg-slate-900 border border-slate-800 text-slate-200'
+            }">
+              <div class="flex items-center justify-between gap-4 pb-1.5 mb-1.5 border-b ${isMe ? 'border-sky-500/20' : 'border-slate-800'} text-[11px]">
+                <span class="font-bold ${isMe ? 'text-sky-300' : 'text-amber-300'}">${msg.name}</span>
+                <span class="font-mono text-slate-500">${msg.time}</span>
+              </div>
+              <div>${escapeHtml(msg.body)}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function insertReplyTemplate(type) {
+      const box = document.getElementById('email-reply-input');
+      const templates = {
+        counter: "Thanks for the details. Given current diesel prices and tight capacity in that market, we need $2,800 all-in to lock this truck in right now. Let me know if you can meet us there and send the Rate Con.",
+        ratecon: "Confirmed! Driver is empty and ready. Please send the Rate Confirmation over to dispatch@apexfreightops.com. Attached is our Carrier Packet (MC #1489204, W-9, COI, and Factoring NOA).",
+        checkcall: "Check-call update: Driver is currently rolling on schedule with zero HOS issues. Estimated arrival at the receiver dock is 30 minutes prior to appointment. Will send signed POD upon empty.",
+        lumper: "Driver has checked in at the receiving dock. Warehouse is requiring a $145.00 lumper fee. Please reply with an EFS/Comchek code or approve reimbursement on a revised Rate Con."
+      };
+      box.value = templates[type] || '';
+      box.focus();
+    }
+
+    async function sendEmailReply() {
+      const input = document.getElementById('email-reply-input');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const thread = state.threads.find(t => t.id === state.selectedThreadId);
+      if (!thread) return;
+
+      thread.messages.push({
+        sender: 'me',
+        name: 'You (Apex Dispatch)',
+        time: getCurrentTimeStr(),
+        body: text
+      });
+      thread.timestamp = 'Just now';
+      input.value = '';
+
+      renderEmailThreadList();
+      renderEmailReader();
+
+      await generateContactReply(thread.id, text);
+    }
+
+    async function generateContactReply(threadId, userMessage) {
+      const thread = state.threads.find(t => t.id === threadId);
+      if (!thread) return;
+
+      const indicator = document.getElementById('ai-typing-indicator');
+      indicator.classList.remove('hidden');
+
+      let replyText = '';
+
+      // If user configured an OpenRouter API key, call OpenRouter free endpoint
+      if (state.openRouterKey) {
+        try {
+          const conversationHistory = thread.messages.map(m => ({
+            role: m.sender === 'me' ? 'user' : 'assistant',
+            content: m.body
+          }));
+
+          const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${state.openRouterKey}`,
+              'Content-Type': 'application/json',
+              'HTTP-Referer': window.location.href,
+              'X-Title': 'DispatchOps TMS Simulator'
+            },
+            body: JSON.stringify({
+              model: state.openRouterModel || 'openrouter/free',
+              messages: [
+                {
+                  role: 'system',
+                  content: `${thread.personaPrompt} Keep your email response under 110 words, realistic to US freight trucking operations, and formatted like a real business email.`
+                },
+                ...conversationHistory
+              ]
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`OpenRouter HTTP ${response.status}`);
+          }
+
+          const data = await response.json();
+          replyText = data.choices?.[0]?.message?.content?.trim();
+        } catch (err) {
+          showToast('OpenRouter Fallback', `API error (${err.message}). Using smart offline responder.`, 'warning');
+        }
+      }
+
+      // Built-in Smart Offline Contextual Responder (Zero API Key Needed)
+      if (!replyText) {
+        await new Promise(r => setTimeout(r, 900));
+        replyText = buildSmartOfflineReply(thread, userMessage);
+      }
+
+      indicator.classList.add('hidden');
+
+      thread.messages.push({
+        sender: 'them',
+        name: thread.contactName,
+        time: getCurrentTimeStr(),
+        body: replyText
+      });
+      if (state.selectedThreadId !== thread.id) {
+        thread.unread = true;
+      }
+
+      renderEmailFolders();
+      renderEmailThreadList();
+      renderEmailReader();
+    }
+
+    function buildSmartOfflineReply(thread, userMsg) {
+      const lower = userMsg.toLowerCase();
+      if (thread.category === 'broker') {
+        if (lower.includes('$') || lower.includes('rate') || lower.includes('counter') || lower.includes('all-in')) {
+          return `I checked with my customer on this lane—I can meet you halfway and bump the rate by +$150 all-in if your driver can guarantee on-time pickup and tracking.\n\nSend over your MC#, driver name, truck/trailer numbers, and I'll shoot the revised Rate Con right over.\n\nBest,\n${thread.contactName}`;
+        }
+        if (lower.includes('rate con') || lower.includes('mc') || lower.includes('packet')) {
+          return `Got your carrier packet—everything is approved in our system (MC #1489204 is active with good safety scores). I've emailed over the signed Rate Confirmation. Please make sure your driver accepts macro-point tracking before rolling.\n\nThanks,\n${thread.contactName}`;
+        }
+        return `Copy that, appreciate the quick email update. I've logged your check-call notes in our TMS and updated the customer portal. Keep me posted once the driver gets empty and send the signed BOL/POD!\n\nRegards,\n${thread.contactName}`;
+      }
+
+      if (thread.category === 'client') {
+        if (lower.includes('lumper') || lower.includes('efs') || lower.includes('detention')) {
+          return `Thank you for notifying the receiving desk. Once the broker's EFS check clears for the $145.00 lumper fee, we will issue the stamped Lumper Receipt and sign the driver's BOL with exact in/out timestamps for detention.\n\nBest,\nReceiving Operations`;
+        }
+        return `Confirmed. Your truck is on the dock schedule. Please instruct the driver to check in at the guard shack with the BOL number and keep the trailer seal intact until verified by our dock supervisor.\n\nRegards,\nFacility Shipping/Receiving`;
+      }
+
+      if (thread.category === 'driver') {
+        return `10-4 Dispatch, got your email. Pre-trip is complete, fuel tanks are topped off, and ELD logs are clean. I'll send a photo of the signed BOL/POD as soon as they finish unloading me.\n\nDrive safe,\n${thread.contactName}`;
+      }
+
+      return `Service Ticket #RS-9921 Confirmed: Our mobile service truck is dispatched to your driver's GPS pin on the shoulder with a replacement commercial tire and air tools. ETA to truck is 45 minutes. PO authorization received.\n\n— 24/7 Commercial Roadside Dispatch`;
+    }
+
+    // -----------------------------------------------------------------------
+    // 5. TAB 3: BILL OF LADING (BOL) GENERATOR
+    // -----------------------------------------------------------------------
+    function updateBolPreview() {
+      document.getElementById('prev-bol-number').textContent = document.getElementById('bol-number').value;
+      document.getElementById('prev-bol-seal').textContent = document.getElementById('bol-seal').value;
+      document.getElementById('prev-bol-shipper').textContent = document.getElementById('bol-shipper').value;
+      document.getElementById('prev-bol-consignee').textContent = document.getElementById('bol-consignee').value;
+      document.getElementById('prev-bol-unit').textContent = document.getElementById('bol-unit').value;
+      document.getElementById('prev-bol-terms').textContent = document.getElementById('bol-terms').value;
+      document.getElementById('prev-bol-commodity').textContent = document.getElementById('bol-commodity').value;
+      document.getElementById('prev-bol-weight').textContent = document.getElementById('bol-weight').value;
+      document.getElementById('prev-bol-notes').textContent = document.getElementById('bol-notes').value;
+    }
+
+    function prefillBolFromActiveLoad() {
+      document.getElementById('bol-number').value = 'BOL-2026-88410';
+      document.getElementById('bol-seal').value = 'SL-7748290';
+      document.getElementById('bol-shipper').value = 'Pacific Beverage Logistics — 14800 Proctor Ave, City of Industry, CA 91746';
+      document.getElementById('bol-consignee').value = 'Northern Valley Grocery DC — 550 Antelope Blvd, Red Bluff, CA 96080';
+      document.getElementById('bol-unit').value = 'Unit #104 / Trailer #V-5309';
+      document.getElementById('bol-commodity').value = '24 Pallets Bottled Spring Water (Non-Hazmat)';
+      document.getElementById('bol-weight').value = '42,500 lbs';
+      updateBolPreview();
+      showToast('BOL Populated', 'Loaded shipment data from Load #LD-8841 into Straight BOL.', 'info');
+    }
+
+    function emailBolToDriver() {
+      const bolNum = document.getElementById('bol-number').value;
+      const seal = document.getElementById('bol-seal').value;
+      const shipper = document.getElementById('bol-shipper').value;
+      const consignee = document.getElementById('bol-consignee').value;
+
+      const driverThread = state.threads.find(t => t.category === 'driver') || state.threads[0];
+      driverThread.messages.push({
+        sender: 'me',
+        name: 'You (Apex Dispatch)',
+        time: getCurrentTimeStr(),
+        body: `Attached is your Straight Bill of Lading (${bolNum}) for your current run:\n• Shipper: ${shipper}\n• Consignee: ${consignee}\n• Seal #: ${seal}\n\nVerify piece count before signing and email back a clear photo of the signed POD after delivery.`
+      });
+
+      state.selectedThreadId = driverThread.id;
+      switchTab('inbox');
+      setEmailFolder('driver');
+      showToast('BOL Emailed to Driver', `Sent ${bolNum} directly to driver inbox.`, 'success');
+    }
+
+    // -----------------------------------------------------------------------
+    // 6. TAB 4: IN-TRANSIT INCIDENTS & BREAKDOWN SIMULATOR
+    // -----------------------------------------------------------------------
+    function renderIncidents() {
+      const container = document.getElementById('incidents-list');
+      const badge = document.getElementById('incident-badge');
+      badge.textContent = state.incidents.length;
+
+      container.innerHTML = state.incidents.map((inc, idx) => `
+        <div class="bg-slate-900 border border-rose-500/40 rounded-2xl p-5 shadow-xl space-y-4">
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 font-mono text-[11px] font-bold">${inc.severity} PRIORITY</span>
+                <span class="font-mono text-xs text-slate-400">${inc.id}</span>
+              </div>
+              <h3 class="text-base font-bold text-white mt-1.5">${inc.type}</h3>
+              <p class="text-xs text-slate-400 mt-0.5">${inc.unit} • <span class="text-slate-200">${inc.location}</span></p>
+            </div>
+            <div class="text-right font-mono text-xs">
+              <div class="text-slate-400">Est. Repair</div>
+              <div class="text-amber-400 font-bold">${inc.estCost}</div>
+            </div>
+          </div>
+
+          <div class="space-y-2 bg-slate-950/70 p-3.5 rounded-xl border border-slate-800">
+            <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Dispatcher Resolution Checklist</div>
+            ${inc.steps.map((s, sIdx) => `
+              <label class="flex items-center gap-2.5 text-xs text-slate-200 cursor-pointer">
+                <input type="checkbox" ${s.done ? 'checked' : ''} onchange="toggleIncidentStep(${idx}, ${sIdx})" class="accent-emerald-500">
+                <span class="${s.done ? 'line-through text-slate-500' : ''}">${s.text}</span>
+              </label>
+            `).join('')}
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 pt-1">
+            <button onclick="dispatchRoadsideEmail('${inc.id}', 'mechanic')" class="px-3 py-2 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 text-xs font-semibold cursor-pointer">
+              1. Email Roadside Mechanic
+            </button>
+            <button onclick="dispatchRoadsideEmail('${inc.id}', 'broker')" class="px-3 py-2 rounded-lg bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/40 text-xs font-semibold cursor-pointer">
+              2. Email Broker Delay Notice
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function toggleIncidentStep(incIdx, stepIdx) {
+      state.incidents[incIdx].steps[stepIdx].done = !state.incidents[incIdx].steps[stepIdx].done;
+      renderIncidents();
+    }
+
+    function spawnSpecificIncident(kind) {
+      const presets = {
+        tire: {
+          type: 'Mechanical Breakdown — Blown Steer Tire',
+          severity: 'HIGH',
+          unit: 'Unit #104 (Mike Reynolds)',
+          location: 'I-5 Northbound, Milepost 218, CA',
+          loadId: 'LD-8841',
+          estCost: '$685.00',
+          steps: [
+            { text: 'Confirm driver hazard triangles & reflective vest deployed', done: true },
+            { text: 'Email Love\'s Mobile Tire Service with EFS PO authorization', done: false },
+            { text: 'Email Broker updated delivery ETA (+2 hours)', done: false }
+          ]
+        },
+        reefer: {
+          type: 'Reefer Unit Temp Spike (+44°F Alarm on Produce Load)',
+          severity: 'CRITICAL',
+          unit: 'Unit #208 (Carlos Mendoza)',
+          location: 'I-20 Eastbound, Shreveport, LA',
+          loadId: 'LD-9012',
+          estCost: '$420.00 (Carrier Thermo King Mobile Tech)',
+          steps: [
+            { text: 'Instruct driver to keep trailer doors sealed & check refrigerant code', done: true },
+            { text: 'Email Thermo King 24/7 Emergency Mobile Tech for immediate dispatch', done: false },
+            { text: 'Document continuous temp download log for cargo claim protection', done: false }
+          ]
+        },
+        accident: {
+          type: 'Minor Yard Backing Incident / Level 1 DOT Inspection',
+          severity: 'MEDIUM',
+          unit: 'Unit #312 (Elena Vance)',
+          location: 'I-70 Eastbound Weigh Station, IN',
+          loadId: 'LD-9045',
+          estCost: '$190.00 (Clearance Light & Air Line Fix)',
+          steps: [
+            { text: 'Collect driver photos of all 4 corners & DOT inspection report', done: true },
+            { text: 'Email Safety Dept & Mobile Mechanic to clear OOS violation', done: false },
+            { text: 'Notify shipper/receiver via email of 90-minute inspection delay', done: false }
+          ]
+        }
+      };
+
+      const p = presets[kind] || presets.tire;
+      const newInc = {
+        id: 'INC-' + Math.floor(500 + Math.random() * 400),
+        status: 'Active',
+        ...p
+      };
+      state.incidents.unshift(newInc);
+      renderIncidents();
+      switchTab('incidents');
+      showToast('Roadside Incident Triggered', `${newInc.type} on ${newInc.unit}`, 'danger');
+    }
+
+    function triggerRandomEmergency() {
+      const kinds = ['tire', 'reefer', 'accident'];
+      const pick = kinds[Math.floor(Math.random() * kinds.length)];
+      spawnSpecificIncident(pick);
+    }
+
+    function dispatchRoadsideEmail(incId, target) {
+      const inc = state.incidents.find(i => i.id === incId);
+      if (!inc) return;
+
+      const isMech = target === 'mechanic';
+      const newThreadId = 'th-' + Date.now();
+      const contactName = isMech ? "Love's 24/7 Mobile Roadside Dispatch" : 'Marcus Vance (Coyote Logistics)';
+      const contactEmail = isMech ? 'roadside-dispatch@loves-sim.com' : 'mvance@coyote-sim.com';
+      const subject = isMech
+        ? `URGENT Mobile Repair Dispatch: ${inc.unit} at ${inc.location}`
+        : `In-Transit Delay Notice (${inc.loadId}): ${inc.type}`;
+      const body = isMech
+        ? `Hello Roadside Dispatch,\n\nWe need immediate mobile service dispatched to ${inc.unit} located at ${inc.location}.\nIssue: ${inc.type}.\nPlease confirm technician ETA and reply with estimate so we can issue an EFS/Comchek PO.\n\nThanks,\nApex Freight Dispatching LLC`
+        : `Hi Marcus,\n\nTransparency update on Load ${inc.loadId}: ${inc.unit} experienced an unexpected ${inc.type} near ${inc.location}. Mobile repair is being dispatched now. We anticipate a 2-hour shift in delivery ETA and will email you as soon as the truck is rolling again.\n\nBest,\nApex Dispatch`;
+
+      state.threads.unshift({
+        id: newThreadId,
+        category: isMech ? 'emergency' : 'broker',
+        unread: false,
+        contactName,
+        contactEmail,
+        subject,
+        timestamp: 'Just now',
+        personaPrompt: isMech
+          ? 'You are a 24/7 commercial truck roadside repair coordinator. Confirm technician ETA, service truck number, and ask for billing PO.'
+          : 'You are a freight broker receiving a delay notification email. Acknowledge the proactive communication and ask for updated ETA.',
+        messages: [
+          {
+            sender: 'me',
+            name: 'You (Apex Dispatch)',
+            time: getCurrentTimeStr(),
+            body
+          }
+        ]
+      });
+
+      state.selectedThreadId = newThreadId;
+      switchTab('inbox');
+      setEmailFolder('all');
+      generateContactReply(newThreadId, body);
+    }
+
+    // -----------------------------------------------------------------------
+    // 7. MODALS (OPENROUTER SETTINGS & COMPOSE EMAIL)
+    // -----------------------------------------------------------------------
+    function openSettingsModal() {
+      document.getElementById('openrouter-key-input').value = state.openRouterKey;
+      document.getElementById('openrouter-model-select').value = state.openRouterModel;
+      document.getElementById('settings-modal').classList.remove('hidden');
+    }
+
+    function closeSettingsModal() {
+      document.getElementById('settings-modal').classList.add('hidden');
+    }
+
+    function saveApiSettings() {
+      state.openRouterKey = document.getElementById('openrouter-key-input').value.trim();
+      state.openRouterModel = document.getElementById('openrouter-model-select').value;
+      localStorage.setItem('dispatchops_or_key', state.openRouterKey);
+      localStorage.setItem('dispatchops_or_model', state.openRouterModel);
+      updateAiStatusBadge();
+      closeSettingsModal();
+      showToast(
+        'AI Settings Saved',
+        state.openRouterKey ? `Connected to OpenRouter (${state.openRouterModel})` : 'Running in Built-in Offline Demo Mode',
+        'success'
+      );
+    }
+
+    function clearApiKey() {
+      state.openRouterKey = '';
+      localStorage.removeItem('dispatchops_or_key');
+      document.getElementById('openrouter-key-input').value = '';
+      updateAiStatusBadge();
+      closeSettingsModal();
+      showToast('Offline Mode Active', 'Using built-in zero-cost dispatch responder.', 'info');
+    }
+
+    function updateAiStatusBadge() {
+      const dot = document.getElementById('ai-status-dot');
+      const label = document.getElementById('ai-status-label');
+      if (state.openRouterKey) {
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+        label.textContent = 'AI: OpenRouter Free';
+      } else {
+        dot.className = 'w-2 h-2 rounded-full bg-amber-400';
+        label.textContent = 'AI: Demo Mode';
+      }
+    }
+
+    function openComposeModal() {
+      document.getElementById('compose-modal').classList.remove('hidden');
+    }
+
+    function closeComposeModal() {
+      document.getElementById('compose-modal').classList.add('hidden');
+    }
+
+    function updateComposePreset() {
+      const cat = document.getElementById('compose-category').value;
+      const toEl = document.getElementById('compose-to');
+      const subEl = document.getElementById('compose-subject');
+      const bodyEl = document.getElementById('compose-body');
+
+      if (cat === 'broker') {
+        toEl.value = 'sjenkins@tql-sim.com';
+        subEl.value = 'Load Inquiry: Dallas, TX to Atlanta, GA — MC #1489204';
+        bodyEl.value = 'Hi Sarah,\n\nWe have a 53\' Reefer empty in Dallas, TX ready for pickup. What is your best all-in rate on the Atlanta run?\n\nBest,\nApex Dispatch';
+      } else if (cat === 'client') {
+        toEl.value = 'receiving@nvgrocery-sim.com';
+        subEl.value = 'Dock Appointment Confirmation — BOL-2026-99412';
+        bodyEl.value = 'Hello Receiving Team,\n\nConfirming our driver will arrive 30 minutes prior to our scheduled dock appointment. Please confirm if any lumper fees apply.\n\nThank you,\nApex Dispatch';
+      } else if (cat === 'driver') {
+        toEl.value = 'carlos.mendoza@apexfleet-driver.com';
+        subEl.value = 'Next Load Pre-Plan — Dallas, TX to Atlanta, GA';
+        bodyEl.value = 'Hey Carlos,\n\nPre-planning you on a produce load out of Dallas tomorrow at 07:00 AM going to Atlanta, GA. Set reefer to 34°F continuous and pre-cool trailer tonight.\n\n— Dispatch';
+      } else {
+        toEl.value = 'roadside-dispatch@loves-sim.com';
+        subEl.value = 'Mobile Roadside Assistance Request — Apex Freight LLC';
+        bodyEl.value = 'Hello Roadside Team,\n\nRequesting mobile service dispatch for our tractor on I-5. Please confirm technician ETA.\n\n— Apex Dispatch';
+      }
+    }
+
+    function submitNewEmailThread() {
+      const category = document.getElementById('compose-category').value;
+      const contactEmail = document.getElementById('compose-to').value.trim();
+      const subject = document.getElementById('compose-subject').value.trim();
+      const body = document.getElementById('compose-body').value.trim();
+      if (!contactEmail || !body) return;
+
+      const newId = 'th-' + Date.now();
+      state.threads.unshift({
+        id: newId,
+        category,
+        unread: false,
+        contactName: contactEmail.split('@')[0],
+        contactEmail,
+        subject: subject || '(No Subject)',
+        timestamp: 'Just now',
+        personaPrompt: `You are ${contactEmail} communicating via email with a freight truck dispatcher. Respond realistically and concisely.`,
+        messages: [
+          {
+            sender: 'me',
+            name: 'You (Apex Dispatch)',
+            time: getCurrentTimeStr(),
+            body
+          }
+        ]
+      });
+
+      closeComposeModal();
+      state.selectedThreadId = newId;
+      switchTab('inbox');
+      setEmailFolder('all');
+      generateContactReply(newId, body);
+    }
+
+    function getCurrentTimeStr() {
+      const now = new Date();
+      return now.toTimeString().slice(0, 5);
+    }
+
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+  </script>
+</body>
+</html>
